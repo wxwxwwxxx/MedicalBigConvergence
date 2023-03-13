@@ -288,6 +288,11 @@ class ConvTokenizerPS(nn.Module):
         img = self.conv_upsample(img)
         img = self.pixelshuffle3d(img, 4)
         return img
+    def forward(self,img):
+        #for debug only
+        ds = self.downsample(img)
+        us = self.upsample(ds)
+        return us
 class ConvTokenizerConvTrans(nn.Module):
     def __init__(self):
         super().__init__()
@@ -304,6 +309,10 @@ class ConvTokenizerConvTrans(nn.Module):
         img = self.conv_upsample1(img)
         img = self.conv_upsample2(img)
         return img
-
+    def forward(self,img):
+        #for debug only
+        ds = self.downsample(img)
+        us = self.upsample(ds)
+        return us
 
 
