@@ -253,14 +253,49 @@ class PatchEmbedRecover(nn.Module):
         return x
 
 
-class ConvTokenizer(nn.Module):
+class ConvTokenizerPS(nn.Module):
+    def __init__(self):
+        super().__init__()
+        #input:fixed 512*512*512
+        self.conv_downsample = nn.Conv3d(64,1,3,1,1)
+        self.conv_upsample = nn.Conv3d(1,64,3,1,1)
+    def pixelshuffle3d(self,img,upscale_factor):
+        b, c, h, w, d = img.size()
+        ups = upscale_factor
+        nc = c / (pow(ups, 3))
+        assert nc % 1 == 0
+        nc = int(nc)
+        img = img.view(b, nc, ups, ups, ups, h, w, d)
+
+        img = img.permute([0, 1, 5, 2, 6, 3, 7, 4])
+        img = img.reshape([b, nc, h * ups, w * ups, d * ups])
+        return img
+    def pixelunshuffle3d(self,img,upscale_factor):
+        b, c, h, w, d = img.size()
+        ups = upscale_factor
+        assert h % ups == 0 and w % ups == 0 and d % ups == 0
+        nc = c * pow(ups, 3)
+        img = img.view(b, c, h // ups, ups, w // ups, ups, d // ups, ups)
+        #              0 1 2      3   4      5   6      7
+        img = img.permute([0, 1, 3, 5, 7, 2, 4, 6])
+        img = img.reshape(b, nc, h // ups, w // ups, d // ups)
+        return img
+    def downsample(self,img):
+        img = self.pixelunshuffle3d(img,4)
+        img = self.conv_downsample(img)
+        return img
+    def upsample(self,img):
+        img = self.conv_upsample(img)
+        img = self.pixelshuffle3d(img, 4)
+        return img
+class ConvTokenizerConvTrans(nn.Module):
     def __init__(self):
         super().__init__()
         #input:fixed 512*512*512
         self.conv_downsample1 = nn.Conv3d(1,16,3,2,1)
         self.conv_downsample2 = nn.Conv3d(16,1,3,2,1)
-        self.conv_upsample1 = nn.ConvTranspose3d(1,16,3,dilation=2,)
-        self.conv_upsample2 = nn.ConvTranspose3d(16,1,3,dilation=2,)
+        self.conv_upsample1 = nn.ConvTranspose3d(1,16,3,2,1,output_padding=1)
+        self.conv_upsample2 = nn.ConvTranspose3d(16,1,3,2,1,output_padding=1)
     def downsample(self,img):
         img = self.conv_downsample1(img)
         img = self.conv_downsample2(img)
@@ -269,7 +304,6 @@ class ConvTokenizer(nn.Module):
         img = self.conv_upsample1(img)
         img = self.conv_upsample2(img)
         return img
-
 
 
 
