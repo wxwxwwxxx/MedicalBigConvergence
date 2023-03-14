@@ -32,21 +32,22 @@ class ImageProcesser():
             if cut_incomplete_patch:
                 nh = (h // patch_size) * patch_size
                 n_start = (h - nh) // 2
-                img = img[:, n_start:nh, :, :]
+
+                img = img[:, n_start:nh+n_start, :, :]
                 h = nh
 
         if w < target_size:
             if cut_incomplete_patch:
                 nw = (w // patch_size) * patch_size
                 n_start = (w - nw) // 2
-                img = img[:, n_start:nw, :, :]
+                img = img[:,:,  n_start:nw+n_start, :]
                 w = nw
 
         if d < target_size:
             if cut_incomplete_patch:
                 nd = (d // patch_size) * patch_size
                 n_start = (d - nd) // 2
-                img = img[:, n_start:nd, :, :]
+                img = img[:,:, :,  n_start:nd+n_start]
                 d = nd
 
         attn_h = math.ceil(h / patch_size)
@@ -62,8 +63,13 @@ class ImageProcesser():
 
 if __name__ == "__main__":
     ip = ImageProcesser()
-    image = np.ones([1, 999, 888, 222])
-    ret, attn_mask = ip.padding(image, 64, 512, True)
-    print(ret[0,::64,::64,::64])
-    print("=============")
+
+
+    img = sitk.ReadImage("/dataset/LUNA2016/subset0/1.3.6.1.4.1.14519.5.2.1.6279.6001.979083010707182900091062408058.mhd")
+    img = sitk.GetArrayFromImage(img)
+    img = img[None,:,:,:]
+    img = (img-np.min(img))/(np.max(img)-np.min(img))
+    print(img.shape)
+    ret, attn_mask = ip.padding(img, 64, 512, True)
+    print(ret.shape)
     print(attn_mask)
