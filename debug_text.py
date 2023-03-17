@@ -3,7 +3,7 @@ from modules.bert import BertModel, BertConfig, BertForMaskedLM, BertForMaskedDM
 from monai.networks.blocks.patchembedding import PatchEmbeddingBlock
 import torch
 
-tokenizer = AutoTokenizer.from_pretrained("/Users/xinwei/PycharmProjects/pretrain_model/bert-base-hm-wmm-20e-384b-15m")
+tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
 
 config = BertConfig(text_length=tokenizer.model_max_length, vl_mlp_length=3)
 model2 = BertForMaskedDM(config)

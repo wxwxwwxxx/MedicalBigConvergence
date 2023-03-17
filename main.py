@@ -7,11 +7,11 @@ import os
 if __name__ == "__main__":
 
     device = torch.device("cuda:0")
-    b = ConvTokenizerPS().to(device)
-    a = torch.rand([2,1,512,512,512]).to(device)
+    b = ConvTokenizerPS().half().to(device)
+    a = torch.rand([2,1,512,512,512]).half().to(device)
     ds = b.downsample(a)
     us = b.upsample(ds)
-    print(ds.size())
+    print(ds.dtype)
     print(us.size())
     # # print(us == a)
     # a=torch.rand([4,48])
