@@ -5,8 +5,9 @@ from datasets import Dataset
 import os
 import pandas as pd
 import glob
-from patch_embedding import ConvTokenizerPS
+import re
 
+from transformers import default_data_collator
 class ImageProcesser():
     def __init__(self, norm_max, norm_min):
         self.norm_max = norm_max
@@ -91,11 +92,13 @@ class ImageProcesser():
         ret = {"img_path": path}
         return ret
 
-    def load_img(self, path):
+    def load_img(self, path, img_aug):
         img = sitk.ReadImage(path)
         img = sitk.GetArrayFromImage(img)
         img = img[None, :, :, :].astype("float32")
         img = (img - self.norm_min) / (self.norm_max - self.norm_min)
+        if img_aug is not None:
+            img=img_aug(img)
         ret, attn_mask = self.padding(img, 64, 512, True)
         return ret, attn_mask
 
@@ -147,46 +150,28 @@ class TextProcesser():
         input_list += [item] * p_length
         return input_list
 
-    def whole_word_masking(self, input_ids, word_ids, mask_prob_text):
-        mapping = collections.defaultdict(list)
-        current_word_index = -1
-        current_word = None
-        for idx, word_id in enumerate(word_ids):
-            if word_id is not None:
-                if word_id != current_word:
-                    current_word = word_id
-                    current_word_index += 1
-                mapping[current_word_index].append(idx)
-
-        # Randomly mask words
-        mask = np.random.binomial(1, mask_prob_text, (len(mapping),))
-        attn_mask = [1] * len(input_ids)
-        labels = input_ids.copy()
-        new_labels = [-100] * len(labels)
-        for word_id in np.where(mask)[0]:
-            word_id = word_id.item()
-            for idx in mapping[word_id]:
-                new_labels[idx] = labels[idx]
-                input_ids[idx] = tokenizer.mask_token_id
-        return input_ids, new_labels, attn_mask
-
-    def collect_fn(self, features, mask_prob_text, tokenizer, ip, padding_length=512):
+    def collect_fn_vl(self, features, tokenizer, ip, masker,img_aug ,padding_length=512):
         for feature in features:
             feature.pop("input_text")
             word_ids = feature.pop("word_ids")
             img_path = feature.pop("img_path")
             input_ids = feature.pop("input_ids")
-            img, img_attn = ip.load_img(img_path)
-            input_ids, new_labels, attn_mask = self.whole_word_masking(input_ids, word_ids, mask_prob_text)
+            img, img_attn = ip.load_img(img_path,img_aug)
+            masked_img,mask = masker.mask_ori_image(img.copy(),64)#TODO: fixed for now
+            print(mask.shape)
+            print(img_attn.shape)
+            input_ids, new_labels, attn_mask = masker.whole_word_masking(input_ids,word_ids,tokenizer) #(self, input_ids, word_ids, tokenizer)
             input_ids = self.list_padding(input_ids, tokenizer.pad_token_id, padding_length)
             new_labels = self.list_padding(new_labels, -100, padding_length)
             attn_mask = self.list_padding(attn_mask, 0, padding_length)
+            img_attn_mask = [1]+np.reshape(mask,[-1]).tolist()#TODO: assuming img cls is true
             feature["labels"] = new_labels
-            feature["attention_mask"] = attn_mask
+            feature["attention_mask"] = attn_mask+img_attn_mask
             feature["input_ids"] = input_ids
-            feature["img"] = img.astype("float16")
+            feature["ground_truth"] = img.astype("float16")
+            feature["masked_img"] = masked_img.astype("float16")
             feature["img_attn"] = img_attn
-            feature["token_type_ids"] = [0]*padding_length+[1]*512 #TODO: it is fixed in
+            feature["token_type_ids"] = [0]*padding_length+[1]*513 #TODO: it is fixed in vl.assuming img cls is true
         return default_data_collator(features)
 
 
@@ -194,25 +179,4 @@ if __name__ == "__main__":
     #
     #
     #
-
-    import re
-    from transformers import AutoTokenizer, default_data_collator
-    import collections
-    from torch.utils.data import DataLoader
-    import torch
-    device = torch.device("cuda:0")
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
-    img_tokenizer = ConvTokenizerPS().half().to(device)
-    print(tokenizer.pad_token_id)
-    tp = TextProcesser()
-    ip = ImageProcesser(norm_max=1000, norm_min=-1000)
-    f_dict = ip.get_file_dict("/dataset/medical-beit/HMCT")
-    dataset = tp.dataset_load(r"/dataset/medical-beit")
-    dataset = tp.dataset_preprocess(dataset, tokenizer, ip, f_dict)
-
-    train_dataloader = DataLoader(dataset["train"], shuffle=True, batch_size=2,
-                                  collate_fn=lambda x: tp.collect_fn(x, 0.5, tokenizer, ip))
-    for i in train_dataloader:
-
-        input_img = img_tokenizer.downsample(i['img'].to(device))
-        print(input_img.size())
+    pass

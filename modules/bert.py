@@ -198,19 +198,19 @@ class BertEmbeddings(nn.Module):
 
     def forward(
             self,
+            modality: Literal["image", "text", "multi"],
+            input_shape: Optional[torch.FloatTensor],
             input_ids: Optional[torch.LongTensor] = None,
             token_type_ids: Optional[torch.LongTensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
             inputs_embeds: Optional[torch.FloatTensor] = None,
+            image_embeds: Optional[torch.FloatTensor] = None,
             past_key_values_length: int = 0,
     ) -> torch.Tensor:
-        if input_ids is not None:
-            input_shape = input_ids.size()
-        else:
-            input_shape = inputs_embeds.size()[:-1]
 
         seq_length = input_shape[1]
-
+        if modality == "image":
+            past_key_values_length = 513 #only img pos embedding
         if position_ids is None:
             position_ids = self.position_ids[:, past_key_values_length: seq_length + past_key_values_length]
 
@@ -225,8 +225,16 @@ class BertEmbeddings(nn.Module):
             else:
                 token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=self.position_ids.device)
 
-        if inputs_embeds is None:
-            inputs_embeds = self.word_embeddings(input_ids)
+        if modality == "image":
+            inputs_embeds = image_embeds
+        elif modality == "text":
+            if inputs_embeds is None:
+                inputs_embeds = self.word_embeddings(input_ids)
+        else:   #vl
+            if inputs_embeds is None:
+                inputs_embeds = self.word_embeddings(input_ids)
+            inputs_embeds = torch.cat([inputs_embeds, image_embeds], 1)
+
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
         embeddings = inputs_embeds + token_type_embeddings
@@ -1054,7 +1062,7 @@ class BertModel(BertPreTrainedModel):
         self.embeddings = BertEmbeddings(config)
         self.encoder = BertEncoder(config)
         # TODO:add argument to config
-        self.patch_embedding = PatchEmbeddingBlock(1, [128, 128, 128], [16, 16, 16], 768, 12, "conv")
+        self.patch_embedding = PatchEmbeddingBlock(1, [128, 128, 128], [16, 16, 16], 768, 12)
         self.pooler = BertPooler(config) if add_pooling_layer else None
 
         # Initialize weights and apply final processing
@@ -1186,11 +1194,11 @@ class BertModel(BertPreTrainedModel):
         if attention_mask is None:
             attention_mask = torch.ones(((batch_size, seq_length + past_key_values_length)), device=device)
 
-        # TODO:image can be assigned as a token_type,so these code are temporary
-        if token_type_ids is None and modality != "image":
+
+        if token_type_ids is None:
             if hasattr(self.embeddings, "token_type_ids"):
-                buffered_token_type_ids = self.embeddings.token_type_ids[:, :text_seq_length]
-                buffered_token_type_ids_expanded = buffered_token_type_ids.expand(batch_size, text_seq_length)
+                buffered_token_type_ids = self.embeddings.token_type_ids[:, :seq_length]
+                buffered_token_type_ids_expanded = buffered_token_type_ids.expand(batch_size, seq_length)
                 token_type_ids = buffered_token_type_ids_expanded
             else:
                 token_type_ids = torch.zeros(text_shape, dtype=torch.long, device=device)
@@ -1217,20 +1225,18 @@ class BertModel(BertPreTrainedModel):
         # and head_mask is converted to shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
-        if modality != "image":
-            text_embeds = self.embeddings(
-                input_ids=input_ids,
-                position_ids=position_ids,
-                token_type_ids=token_type_ids,  # TODO: tokentype takes text only
-                inputs_embeds=inputs_embeds,
-                past_key_values_length=past_key_values_length,
-            )
-        if modality == "text":
-            embedding_output = text_embeds
-        elif modality == "image":
-            embedding_output = image_embeds
-        else:  # multi
-            embedding_output = torch.cat([text_embeds, image_embeds], dim=1)
+
+        embedding_output = self.embeddings(
+            modality=modality,
+            input_shape=input_shape,
+            input_ids=input_ids,
+            position_ids=position_ids,
+            token_type_ids=token_type_ids,
+            inputs_embeds=inputs_embeds,
+            image_embeds=image_embeds,
+            past_key_values_length=past_key_values_length,
+        )
+
 
         encoder_outputs = self.encoder(
             embedding_output,

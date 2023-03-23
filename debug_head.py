@@ -1,140 +1,35 @@
-from transformers import AutoTokenizer
-from modules.bert import BertConfig, BertForMaskedLM, BertForMaskedAE
 import torch
+from torch import nn
+from monai.networks.nets import ViT,ViTAutoEnc
+from modules.patch_embedding import ConvTokenizerConvTrans, ConvTokenizerPS
+from torchsummary import summary
 import os
+if __name__ == "__main__":
 
-#=========
-
-# model = AutoModelForMaskedLM.from_pretrained(model_checkpoint)
-# distilbert_num_parameters = model.num_parameters() / 1_000_000
-# print(f"'>>> DistilBERT number of parameters: {round(distilbert_num_parameters)}M'")
-# print(f"'>>> BERT number of parameters: 110M'")
-# text = "China has announced that [MASK]."
-# tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
-# import torch
-
-# inputs = tokenizer(text, return_tensors="pt")
-# token_logits = model(**inputs).logits
-# # Find the location of [MASK] and extract its logits
-# mask_token_index = torch.where(inputs["input_ids"] == tokenizer.mask_token_id)[1]
-# mask_token_logits = token_logits[0, mask_token_index, :]
-# # Pick the [MASK] candidates with the highest logits
-# top_5_tokens = torch.topk(mask_token_logits, 5, dim=1).indices[0].tolist()
-#
-# for token in top_5_tokens:
-#     print(f"'>>> {text.replace(tokenizer.mask_token, tokenizer.decode([token]))}'")
-#
-# from datasets import load_dataset
-#
-# imdb_dataset = load_dataset("imdb")
-# sample = imdb_dataset["train"].shuffle(seed=42).select(range(3))
-#
-# for row in sample:
-#     print(f"\n'>>> Review: {row['text']}'")
-#     print(f"'>>> Label: {row['label']}'")
-#
-# def tokenize_function(examples):
-#     result = tokenizer(examples["text"])
-#     if tokenizer.is_fast:
-#         result["word_ids"] = [result.word_ids(i) for i in range(len(result["input_ids"]))]
-#     return result
-#
-# tokenized_datasets = imdb_dataset.map(
-#     tokenize_function, batched=True, remove_columns=["text", "label"]
-# )
-# # print(tokenized_datasets["train"]["word_ids"])
-# chunk_size = 128
-# # tokenized_samples = tokenized_datasets["train"][:3]
-# #
-# # for idx, sample in enumerate(tokenized_samples["input_ids"]):
-# #     print(f"'>>> Review {idx} length: {len(sample)}'")
-# # concatenated_examples = {
-# #     k: sum(tokenized_samples[k], []) for k in tokenized_samples.keys()
-# # }
-# # total_length = len(concatenated_examples["input_ids"])
-# # print(f"'>>> Concatenated reviews length: {total_length}'")
-# # chunks = {
-# #     k: [t[i : i + chunk_size] for i in range(0, total_length, chunk_size)]
-# #     for k, t in concatenated_examples.items()
-# # }
-# #
-# # for chunk in chunks["input_ids"]:
-# #     print(f"'>>> Chunk length: {len(chunk)}'")
-# def group_texts(examples):
-#     # Concatenate all texts
-#     concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
-#     # Compute length of concatenated texts
-#     total_length = len(concatenated_examples[list(examples.keys())[0]])
-#     # We drop the last chunk if it's smaller than chunk_size
-#     total_length = (total_length // chunk_size) * chunk_size
-#     # Split by chunks of max_len
-#     result = {
-#         k: [t[i : i + chunk_size] for i in range(0, total_length, chunk_size)]
-#         for k, t in concatenated_examples.items()
-#     }
-#     # Create a new labels column
-#     result["labels"] = result["input_ids"].copy()
-#     return result
-#
-# lm_datasets = tokenized_datasets.map(group_texts, batched=True)
-# print(lm_datasets)
-import collections
-import numpy as np
-
-
-
-wwm_probability = 0.2
-from transformers import AutoModelForMaskedLM, AutoTokenizer
-tokenizer = AutoTokenizer.from_pretrained("bert-base-chinese")
-
-
-
-
-# for chunk in batch["input_ids"]:
-#     print(f"\n'>>> {tokenizer.decode(chunk)}'")
-train_size = 10_00
-test_size = int(0.1 * train_size)
-
-downsampled_dataset = lm_datasets["train"].train_test_split(
-    train_size=train_size, test_size=test_size, seed=42
-)
-from transformers import TrainingArguments
-
-batch_size = 64
-# Show the training loss with every epoch
-logging_steps = len(downsampled_dataset["train"]) // batch_size
-model_name = model_checkpoint.split("/")[-1]
-
-training_args = TrainingArguments(
-    output_dir=f"{model_name}-finetuned-imdb",
-    overwrite_output_dir=True,
-    evaluation_strategy="epoch",
-    learning_rate=2e-5,
-    weight_decay=0.01,
-    per_device_train_batch_size=batch_size,
-    per_device_eval_batch_size=batch_size,
-    push_to_hub=False,
-    fp16=False,
-    logging_steps=logging_steps,
-    remove_unused_columns=False
-)
-from transformers import Trainer
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=downsampled_dataset["train"],
-    eval_dataset=downsampled_dataset["test"],
-    data_collator=whole_word_masking_data_collator,
-    tokenizer=tokenizer,
-)
-import math
-
-eval_results = trainer.evaluate()
-print(f">>> Perplexity: {math.exp(eval_results['eval_loss']):.2f}")
-trainer.train()
-eval_results = trainer.evaluate()
-print(f">>> Perplexity: {math.exp(eval_results['eval_loss']):.2f}")
-
+    device = torch.device("cuda:0")
+    b = ConvTokenizerPS().half().to(device)
+    a = torch.rand([2,1,512,512,512]).half().to(device)
+    ds = b.downsample(a)
+    us = b.upsample(ds)
+    print(ds.dtype)
+    print(us.size())
+    # # print(us == a)
+    # a=torch.rand([4,48])
+    # b=torch.tensor([0,1,2,3])
+    # loss = nn.CrossEntropyLoss()
+    # layer = torch.nn.Linear(48,4)
+    # layer2 = torch.nn.Linear(4, 4)
+    # opti = torch.optim.SGD([*layer.parameters(),*layer2.parameters()],lr=1)
+    # # while 1:
+    # opti.zero_grad()
+    # te = layer(a)
+    # la = layer2(te)
+    # l = loss(la,b)
+    # print(layer.bias.is_leaf)
+    # # layer2.bias.backward(gradient=torch.tensor([400.0,400.0,400.0,400.0,]))
+    # grad = torch.autograd.grad(outputs=l,inputs=layer.bias, create_graph=True)
+    # print(grad           )
+    # opti.step()
+    #
 
 
