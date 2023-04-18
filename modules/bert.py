@@ -210,7 +210,7 @@ class BertEmbeddings(nn.Module):
 
         seq_length = input_shape[1]
         if modality == "image":
-            past_key_values_length = 513 #only img pos embedding
+            past_key_values_length = 512 #only img pos embedding
         if position_ids is None:
             position_ids = self.position_ids[:, past_key_values_length: seq_length + past_key_values_length]
 
